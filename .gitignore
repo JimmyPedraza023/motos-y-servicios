@@ -19,6 +19,7 @@ build/
 # Datos crudos
 data/raw/*.csv
 data/raw/*.json
+data/raw/*.txt
 data/processed/*.csv
 
 # IDEs
