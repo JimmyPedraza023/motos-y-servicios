@@ -39,8 +39,17 @@ def _validar_columnas(df: pd.DataFrame, nombre: str) -> None:
 def leer_leads() -> pd.DataFrame:
     path = RAW_DIR / "leads.csv"
     logger.info(f"Leyendo {path}")
-    df = pd.read_csv(path, dtype=str)  # dtype=str para preservar formatos originales
+    df = pd.read_csv(path, dtype=str)
     _validar_columnas(df, "leads")
+
+    # Eliminar filas con lead_id duplicado — registros idénticos por error del CRM
+    # Caso detectado: LD-00011 aparece en filas 12 y 1503 con datos 100% iguales
+    duplicados_id = df[df.duplicated(subset=["lead_id"], keep=False)]
+    if not duplicados_id.empty:
+        ids_afectados = duplicados_id["lead_id"].unique().tolist()
+        logger.warning(f"lead_id duplicados en fuente (error CRM): {ids_afectados} → se conserva primera ocurrencia")
+        df = df.drop_duplicates(subset=["lead_id"], keep="first")
+
     logger.info(f"leads.csv: {len(df):,} filas, {len(df.columns)} columnas")
     return df
 
