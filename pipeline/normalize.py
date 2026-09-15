@@ -286,7 +286,7 @@ def normalizar_leads(df: pd.DataFrame, df_catalogo: pd.DataFrame) -> pd.DataFram
     logger.info(f"  Modelo de interés: {sin_match} sin match en catálogo")
 
     # 8. Columnas de texto: strip general
-    for col in ["nombre_cliente", "campania"]:
+    for col in ["nombre_cliente", "campania", "empresa_id", "punto_venta_id"]:
         if col in resultado.columns:
             resultado[col] = resultado[col].apply(
                 lambda x: str(x).strip() if pd.notna(x) else None
@@ -299,6 +299,14 @@ def normalizar_leads(df: pd.DataFrame, df_catalogo: pd.DataFrame) -> pd.DataFram
 def normalizar_asesores(df: pd.DataFrame) -> pd.DataFrame:
     """Limpieza básica del DataFrame de asesores."""
     resultado = df.copy()
+
+    # empresa_id / punto_venta_id: strip — deben matchear exacto contra leads
+    for col in ["empresa_id", "punto_venta_id"]:
+        if col in resultado.columns:
+            resultado[col] = resultado[col].apply(
+                lambda x: str(x).strip() if pd.notna(x) else None
+            )
+   
     # activo: 'SI'/'NO' → bool
     if "activo" in resultado.columns:
         resultado["activo"] = resultado["activo"].str.strip().str.upper().map(
