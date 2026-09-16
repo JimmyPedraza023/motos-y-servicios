@@ -251,6 +251,7 @@ def _generar_explicacion(
     temperatura: str,
 ) -> str:
     razones = []
+    alertas = []   # ← separar razones positivas de alertas
 
     if intencion == "alta":
         razones.append("intención de compra alta declarada en conversación")
@@ -269,16 +270,27 @@ def _generar_explicacion(
     if canal == "WhatsApp":
         razones.append("canal WhatsApp (mayor tasa histórica de cierre)")
 
+    # ── Tiempo: razón positiva vs alerta negativa ─────────────────────────
     if horas is not None:
         if horas < 24:
             razones.append(f"lead reciente ({horas:.0f}h)")
-        elif horas > 72:
-            razones.append(f"sin contacto por {horas:.0f}h — priorizar ahora")
+        elif 24 <= horas <= 72:
+            alertas.append(f"lleva {horas:.0f}h sin contacto — gestionar hoy")
+        else:  # horas > 72
+            alertas.append(f"⚠ {horas:.0f}h sin contacto — riesgo de pérdida")
 
-    if not razones:
+    if not razones and not alertas:
         razones.append("sin señales fuertes de intención")
 
-    return f"[{temperatura}] " + "; ".join(razones).capitalize() + "."
+    # ── Construir texto ───────────────────────────────────────────────────
+    partes = []
+    if razones:
+        texto_razones = "; ".join(razones)
+        partes.append(texto_razones[0].upper() + texto_razones[1:])
+    if alertas:
+        partes.append("; ".join(alertas))
+
+    return f"[{temperatura}] " + ". ".join(partes) + "."
 
 
 def persist_scores(df_scored: pd.DataFrame, run_id: str) -> None:
