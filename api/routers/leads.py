@@ -2,8 +2,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from supabase import Client
 
-from api.dependencies import get_db, get_empresa_id
+from api.dependencies import get_db, get_empresa_id, get_fecha_gestion, ContextoFecha
 from api.schemas import LeadListResponse, LeadResponse, LeadScore, LeadAsignacion
+from datetime import datetime, timezone, timedelta, date
+
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
@@ -53,6 +55,7 @@ def listar_leads(
     pagina: int = Query(1, ge=1, description="Número de página"),
     por_pagina: int = Query(50, ge=1, le=200, description="Resultados por página"),
     empresa_id: str = Depends(get_empresa_id),
+    ctx_fecha: ContextoFecha = Depends(get_fecha_gestion),
     db: Client = Depends(get_db),
 ):
     # ── 1. Query base de leads ────────────────────────────────────────────────
@@ -68,7 +71,6 @@ def listar_leads(
     if ciudad:
         query = query.ilike("ciudad", f"%{ciudad}%")
     if sin_contacto_24h:
-        from datetime import datetime, timezone, timedelta
         corte = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         query = (
             query
@@ -109,8 +111,7 @@ def listar_leads(
         lead_ids = [l["lead_id"] for l in leads]
 
     # ── 4. Asignaciones de hoy ────────────────────────────────────────────────
-    from datetime import date
-    hoy = date.today().isoformat()
+    hoy = ctx_fecha.fecha
 
     asignaciones_query = (
         db.table("lead_asignaciones")
@@ -155,6 +156,7 @@ def listar_leads(
 def obtener_lead(
     lead_id: str,
     empresa_id: str = Depends(get_empresa_id),
+    ctx_fecha: ContextoFecha = Depends(get_fecha_gestion),
     db: Client = Depends(get_db),
 ):
     # ── Lead ──────────────────────────────────────────────────────────────────
@@ -188,12 +190,11 @@ def obtener_lead(
     score = score_raw[0] if score_raw else None
 
     # ── Asignación de hoy ─────────────────────────────────────────────────────
-    from datetime import date
     asignacion_raw = (
         db.table("lead_asignaciones")
         .select("*")
         .eq("lead_id", lead_id)
-        .eq("fecha_asignacion", date.today().isoformat())
+        .eq("fecha_asignacion", ctx_fecha.fecha)
         .limit(1)
         .execute()
         .data

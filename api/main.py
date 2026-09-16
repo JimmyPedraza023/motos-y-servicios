@@ -1,10 +1,13 @@
+# api/main.py
 from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import health, leads, asignaciones
+from api.routers import health, leads, asignaciones, pipeline   
+from api.scheduler import iniciar_scheduler, detener_scheduler   
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,18 +18,20 @@ logger = logging.getLogger("api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Inicialización al arrancar. El cliente Supabase usa un singleton
-    (db/client.py), así que simplemente lo calentamos aquí para que
-    el primer request no pague el costo de conexión.
-    """
+    # ── Arranque ──────────────────────────────────────────────────────────
     from db.client import get_client
     try:
         get_client()
         logger.info("✔ Conexión a Supabase establecida")
     except Exception as e:
         logger.error(f"✘ No se pudo conectar a Supabase: {e}")
+
+    iniciar_scheduler()  # ← inicia el cron nocturno
+
     yield
+
+    # ── Apagado ───────────────────────────────────────────────────────────
+    detener_scheduler()  # ← apaga limpiamente el scheduler
     logger.info("API detenida")
 
 
@@ -40,8 +45,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── CORS ──────────────────────────────────────────────────────────────────────
-# En producción reemplazar origins=["*"] con los dominios reales del dashboard.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,10 +53,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(health.router)
 app.include_router(leads.router)
-app.include_router(asignaciones.router) 
+app.include_router(asignaciones.router)
+app.include_router(pipeline.router)  # ← nuevo
 
 
 @app.get("/", include_in_schema=False)
