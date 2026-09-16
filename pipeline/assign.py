@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 # Temperaturas que se asignan a asesores
 TEMPERATURAS_ASIGNABLES = {"Caliente", "Tibio"}
 
+_COLUMNAS_ASIGNACION_DB = [
+    "lead_id",
+    "asesor_id",
+    "fecha_asignacion",
+    "orden_prioridad",
+]
 
 # ── Preparación de asesores ───────────────────────────────────────────────────
 
@@ -58,6 +64,35 @@ def _preparar_asesores(df_asesores: pd.DataFrame) -> pd.DataFrame:
         f"Capacidad total del día: {df['capacidad_diaria_leads'].sum()} leads"
     )
     return df
+
+
+def persist_asignaciones(df_resultado: pd.DataFrame, run_id: str) -> None:
+    from db.client import get_client
+    db = get_client()
+
+    _COLUMNAS_ASIGNACION_DB = [
+        "lead_id", "asesor_id", "fecha_asignacion", "orden_prioridad"
+    ]
+
+    df_asig = df_resultado[
+        df_resultado["asignado"] == True
+    ][_COLUMNAS_ASIGNACION_DB].copy()
+
+    df_asig["pipeline_run_id"] = run_id
+    df_asig["atendido"] = False
+
+    # orden_prioridad viene como float por mezcla con NaN — forzar a int
+    df_asig["orden_prioridad"] = df_asig["orden_prioridad"].astype(int)
+
+    records = [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in df_asig.to_dict(orient="records")
+    ]
+
+    if records:
+        db.table("lead_asignaciones").insert(records).execute()
+
+    logger.info(f"{len(records)} asignaciones persistidas en Supabase")
 
 
 # ── Asignación principal ──────────────────────────────────────────────────────

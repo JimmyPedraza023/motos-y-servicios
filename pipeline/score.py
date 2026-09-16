@@ -109,6 +109,19 @@ _SCORE_INTENCION = {
     None:    PESO_INTENCION_IA * 0.00,
 }
 
+# Mapeo de nombres del DataFrame → nombres de columnas en Supabase
+_COLUMNAS_SCORE_DB = {
+    "lead_id":             "lead_id",
+    "score_total":         "score_total",
+    "temperatura":         "temperatura",
+    "score_canal":         "score_canal",
+    "score_tiempo":        "score_tiempo_respuesta",
+    "score_cuota_inicial": "score_cuota_inicial",
+    "score_forma_pago":    "score_forma_pago",
+    "score_intencion_ia":  "score_intencion",
+    "score_pidio_cita":    "score_pidio_cita",
+    "explicacion":         "explicacion",
+}
 
 # ── Funciones de puntuación por componente ────────────────────────────────────
 
@@ -266,6 +279,54 @@ def _generar_explicacion(
         razones.append("sin señales fuertes de intención")
 
     return f"[{temperatura}] " + "; ".join(razones).capitalize() + "."
+
+
+def persist_scores(df_scored: pd.DataFrame, run_id: str) -> None:
+    from db.client import get_client
+    db = get_client()
+
+    # Obtener lead_ids que realmente existen en la DB
+    resultado = db.table("leads").select("lead_id").execute()
+    leads_existentes = {row["lead_id"] for row in resultado.data}
+
+    _COLUMNAS_SCORE_DB = {
+        "lead_id":             "lead_id",
+        "score_total":         "score_total",
+        "temperatura":         "temperatura",
+        "score_canal":         "score_canal",
+        "score_tiempo":        "score_tiempo_respuesta",
+        "score_cuota_inicial": "score_cuota_inicial",
+        "score_forma_pago":    "score_forma_pago",
+        "score_intencion_ia":  "score_intencion",
+        "score_pidio_cita":    "score_pidio_cita",
+        "explicacion":         "explicacion",
+    }
+
+    cols_presentes = [c for c in _COLUMNAS_SCORE_DB if c in df_scored.columns]
+    df_db = df_scored[cols_presentes].rename(columns=_COLUMNAS_SCORE_DB).copy()
+    df_db["pipeline_run_id"] = run_id
+
+    # Filtrar leads que no están en la DB
+    antes = len(df_db)
+    df_db = df_db[df_db["lead_id"].isin(leads_existentes)]
+    descartados = antes - len(df_db)
+    if descartados > 0:
+        logger.warning(
+            f"{descartados} scores descartados por lead_id inexistente en DB"
+        )
+
+    records = [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in df_db.to_dict(orient="records")
+    ]
+
+    batch_size = 500
+    for i in range(0, len(records), batch_size):
+        db.table("lead_scores").insert(
+            records[i:i + batch_size]
+        ).execute()
+
+    logger.info(f"{len(records)} scores persistidos en Supabase")
 
 
 # ── Función principal ─────────────────────────────────────────────────────────

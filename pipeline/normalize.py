@@ -15,6 +15,8 @@ import logging
 import re
 import unicodedata
 from datetime import datetime
+from db.client import get_client
+import math
 
 import pandas as pd
 from rapidfuzz import process, fuzz
@@ -343,6 +345,86 @@ def normalizar_historico(df: pd.DataFrame) -> pd.DataFrame:
 
     return resultado
 
+
+def persist_leads(df_leads: pd.DataFrame, run_id: str) -> None:
+    from db.client import get_client
+    db = get_client()
+
+    COLUMNAS_DB = [
+        "lead_id", "empresa_id", "punto_venta_id", "nombre_cliente",
+        "telefono", "email", "ciudad", "canal", "campania",
+        "fecha_registro", "modelo_interes_texto", "referencia_id",
+        "estado_gestion", "fecha_primer_contacto", "es_duplicado",
+        "lead_id_principal",
+    ]
+
+    cols_presentes = [c for c in COLUMNAS_DB if c in df_leads.columns]
+    df_db = df_leads[cols_presentes].copy()
+    df_db["pipeline_run_id"] = run_id
+
+    # Filtrar leads que violarían NOT NULL constraints
+    antes = len(df_db)
+    df_db = df_db[df_db["canal"].notna()]
+    descartados = antes - len(df_db)
+    if descartados > 0:
+        logger.warning(
+            f"{descartados} leads descartados por canal nulo (datos inválidos)"
+        )
+
+    records = [
+        {k: (None if pd.isna(v) else v) for k, v in row.items()}
+        for row in df_db.to_dict(orient="records")
+    ]
+
+    batch_size = 500
+    for i in range(0, len(records), batch_size):
+        db.table("leads").upsert(
+            records[i:i + batch_size], on_conflict="lead_id"
+        ).execute()
+
+    logger.info(f"{len(records)} leads persistidos en Supabase")
+
+
+def persist_conversaciones(conversaciones: list[dict]) -> None:
+    from db.client import get_client
+    db = get_client()
+
+    # Obtener los lead_ids que realmente existen en la tabla leads
+    resultado = db.table("leads").select("lead_id").execute()
+    leads_existentes = {row["lead_id"] for row in resultado.data}
+
+    records = []
+    huerfanas = 0
+    for conv in conversaciones:
+        lead_id = conv.get("lead_id")
+
+        # Descartar conversaciones cuyo lead no existe en la DB
+        if lead_id not in leads_existentes:
+            huerfanas += 1
+            continue
+
+        mensajes = conv.get("mensajes", [])
+        records.append({
+            "conversacion_id": conv.get("conversacion_id"),
+            "lead_id":         lead_id,
+            "canal":           conv.get("canal"),
+            "fecha_inicio":    conv.get("fecha_inicio"),
+            "total_mensajes":  len(mensajes),
+            "raw_json":        conv,
+        })
+
+    if huerfanas > 0:
+        logger.warning(
+            f"{huerfanas} conversaciones descartadas por lead_id inexistente"
+        )
+
+    batch_size = 500
+    for i in range(0, len(records), batch_size):
+        db.table("conversaciones").upsert(
+            records[i:i + batch_size], on_conflict="conversacion_id"
+        ).execute()
+
+    logger.info(f"{len(records)} conversaciones persistidas en Supabase")
 
 #Ejecución directa para prueba 
 

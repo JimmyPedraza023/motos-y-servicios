@@ -33,6 +33,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, field_validator, ValidationError
 
+from db.client import get_client
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -336,6 +338,7 @@ def extraer_conversaciones(
     conversaciones: list[dict],
     limite: int = None,
     reanudar: bool = True,
+    run_id: str = None, 
 ) -> list[dict]:
     """
     Procesa todas las conversaciones y retorna una lista de dicts
@@ -404,6 +407,9 @@ def extraer_conversaciones(
             resultados.append(resultado)
             tokens_totales += resultado.get("tokens_usados", 0)
 
+            if resultado.get("extraccion_exitosa") and run_id:
+                persist_extraccion(resultado, run_id)
+
         # Checkpoint después de cada grupo
         guardar_resultados(resultados)
 
@@ -428,6 +434,48 @@ def extraer_conversaciones(
     logger.info("=" * 50)
 
     return resultados
+
+
+def load_conversaciones():
+    db = get_client()
+    # Solo las que no tienen extracción aún (evita re-procesar en re-ejecuciones)
+    result = db.table("conversaciones").select(
+        "conversacion_id, lead_id, raw_json"
+    ).execute()
+    return result.data
+
+
+def persist_extraccion(resultado: dict, run_id: str = None) -> None:
+    from db.client import get_client
+    import json
+    db = get_client()
+
+    raw = resultado.get("raw_response")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {"raw": raw}
+
+    record = {
+        "conversacion_id":       resultado.get("conversacion_id"),
+        "lead_id":               resultado.get("lead_id"),
+        "modelo_interes":        resultado.get("modelo_interes"),
+        "presupuesto_cuota":     resultado.get("presupuesto_cuota"),
+        "forma_pago":            resultado.get("forma_pago"),
+        "intencion_declarada":   resultado.get("intencion_declarada"),
+        "objecion_principal":    resultado.get("objecion_principal"),
+        "pidio_cita_cotizacion": resultado.get("pidio_cita_cotizacion"),
+        "modelo_ia_usado":       resultado.get("modelo_ia_usado"),
+        "tokens_usados":         resultado.get("tokens_usados"),
+        "raw_response":          raw,  # ← ya como dict
+    }
+
+    record = {k: v for k, v in record.items() if v is not None}
+
+    db.table("conversacion_extracciones").upsert(
+        record, on_conflict="conversacion_id"
+    ).execute()
 
 
 # ── Ejecución directa ─────────────────────────────────────────────────────────
