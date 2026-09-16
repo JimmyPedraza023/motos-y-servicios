@@ -12,6 +12,7 @@ o el de mayor calidad de datos) y los demás se marcan como duplicados.
 
 import logging
 from itertools import combinations
+from db.client import get_client
 
 import pandas as pd
 from rapidfuzz import fuzz
@@ -207,6 +208,31 @@ def resumen_duplicados(df_dedup: pd.DataFrame) -> None:
     ][["lead_id", "nombre_cliente", "telefono", "canal", "empresa_id"]].head(5)
     print(muestra.to_string())
 
+
+def persist_duplicates(df_leads: pd.DataFrame) -> None:
+    """Actualiza los flags de deduplicación en la tabla leads de Supabase."""
+    from db.client import get_client
+    db = get_client()
+
+    # Filtrar solo los duplicados
+    duplicados = df_leads[df_leads["es_duplicado"] == True][[
+        "lead_id", "lead_id_principal"
+    ]]
+
+    if duplicados.empty:
+        logger.info("Sin duplicados que persistir")
+        return
+
+    # Actualizar cada duplicado individualmente
+    actualizados = 0
+    for _, row in duplicados.iterrows():
+        db.table("leads").update({
+            "es_duplicado":      True,
+            "lead_id_principal": row["lead_id_principal"]
+        }).eq("lead_id", row["lead_id"]).execute()
+        actualizados += 1
+
+    logger.info(f"{actualizados} leads marcados como duplicados en Supabase")
 
 #Ejecución directa para prueba 
 
