@@ -382,6 +382,25 @@ def extraer_conversaciones(
     total = len(pendientes)
     if total == 0:
         logger.info("Todas las conversaciones ya fueron procesadas.")
+        if run_id:
+            # Traer los conversacion_id que realmente existen en Supabase
+            db = get_client()
+            ids_en_bd = {
+                r["conversacion_id"]
+                for r in db.table("conversaciones").select("conversacion_id").execute().data
+            }
+
+            exitosas_checkpoint = [
+                r for r in resultados
+                if r.get("extraccion_exitosa")
+                and r.get("lead_id")
+                and r.get("conversacion_id") in ids_en_bd
+            ]
+
+            logger.info(f"Persistiendo {len(exitosas_checkpoint)} extracciones desde checkpoint...")
+            for r in exitosas_checkpoint:
+                persist_extraccion(r, run_id)
+            logger.info("Persistencia desde checkpoint completa.")
         return resultados
 
     tokens_totales = sum(r.get("tokens_usados", 0) for r in resultados)
