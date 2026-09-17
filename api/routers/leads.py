@@ -53,7 +53,7 @@ def listar_leads(
         description="Si True, devuelve solo leads sin primer contacto en más de 24 horas",
     ),
     pagina: int = Query(1, ge=1, description="Número de página"),
-    por_pagina: int = Query(50, ge=1, le=200, description="Resultados por página"),
+    por_pagina: int = Query(50, ge=1, le=2000, description="Resultados por página"),
     empresa_id: str = Depends(get_empresa_id),
     ctx_fecha: ContextoFecha = Depends(get_fecha_gestion),
     db: Client = Depends(get_db),

@@ -297,34 +297,42 @@ def persist_scores(df_scored: pd.DataFrame, run_id: str) -> None:
     from db.client import get_client
     db = get_client()
 
-    # Obtener lead_ids que realmente existen en la DB
-    resultado = db.table("leads").select("lead_id").execute()
-    leads_existentes = {row["lead_id"] for row in resultado.data}
+    # ── Fix: traer TODOS los lead_ids paginando ───────────────────────────
+    leads_existentes = set()
+    page_size = 1000
+    offset = 0
+    while True:
+        resultado = (
+            db.table("leads")
+            .select("lead_id")
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        batch = resultado.data or []
+        for row in batch:
+            leads_existentes.add(row["lead_id"])
+        if len(batch) < page_size:
+            break
+        offset += page_size
 
-    _COLUMNAS_SCORE_DB = {
-        "lead_id":             "lead_id",
-        "score_total":         "score_total",
-        "temperatura":         "temperatura",
-        "score_canal":         "score_canal",
-        "score_tiempo":        "score_tiempo_respuesta",
-        "score_cuota_inicial": "score_cuota_inicial",
-        "score_forma_pago":    "score_forma_pago",
-        "score_intencion_ia":  "score_intencion",
-        "score_pidio_cita":    "score_pidio_cita",
-        "explicacion":         "explicacion",
-    }
+    logger.info(f"Leads existentes en BD: {len(leads_existentes)}")
+    # ─────────────────────────────────────────────────────────────────────
 
     cols_presentes = [c for c in _COLUMNAS_SCORE_DB if c in df_scored.columns]
     df_db = df_scored[cols_presentes].rename(columns=_COLUMNAS_SCORE_DB).copy()
     df_db["pipeline_run_id"] = run_id
 
-    # Filtrar leads que no están en la DB
+    logger.info(f"Scores antes de filtrar: {len(df_db)}")
+
     antes = len(df_db)
     df_db = df_db[df_db["lead_id"].isin(leads_existentes)]
     descartados = antes - len(df_db)
+
+    logger.info(f"Scores después de filtrar: {len(df_db)}")
+
     if descartados > 0:
         logger.warning(
-            f"{descartados} scores descartados por lead_id inexistente en DB"
+            f"{descartados} scores descartados por lead_id inexistente en BD"
         )
 
     records = [
@@ -334,8 +342,9 @@ def persist_scores(df_scored: pd.DataFrame, run_id: str) -> None:
 
     batch_size = 500
     for i in range(0, len(records), batch_size):
-        db.table("lead_scores").insert(
-            records[i:i + batch_size]
+        db.table("lead_scores").upsert(
+            records[i:i + batch_size],
+            on_conflict="lead_id,pipeline_run_id"
         ).execute()
 
     logger.info(f"{len(records)} scores persistidos en Supabase")
