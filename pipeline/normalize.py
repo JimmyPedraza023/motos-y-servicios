@@ -433,6 +433,60 @@ def persist_conversaciones(conversaciones: list[dict]) -> None:
 
     logger.info(f"{len(records)} conversaciones persistidas en Supabase")
 
+
+def persist_historico(df: pd.DataFrame) -> None:
+    from db.client import get_client
+    db = get_client()
+
+    COLUMNAS_MAP = {
+        "lead_id":                  "historico_id",        # el CSV usa lead_id como PK
+        "canal":                    "canal",
+        "empresa_id":               "empresa_id",
+        "punto_venta_id":           "punto_venta_id",
+        "modelo_cotizado":          "modelo_cotizado",
+        "horas_al_primer_contacto": "horas_primer_contacto",  # ← renombrar
+        "num_contactos":            "num_contactos",
+        "manifesto_cuota_inicial":  "manifesto_cuota_inicial",
+        "forma_pago_declarada":     "forma_pago_declarada",
+        "pidio_cita":               "pidio_cita",
+        "desenlace":                "desenlace",
+    }
+
+    # Solo columnas que existen en el DataFrame
+    cols_presentes = {k: v for k, v in COLUMNAS_MAP.items() if k in df.columns}
+    df_db = df[list(cols_presentes.keys())].copy()
+    df_db = df_db.rename(columns=cols_presentes)
+
+    # Numérico: asegurar tipos correctos
+    if "horas_primer_contacto" in df_db.columns:
+        df_db["horas_primer_contacto"] = pd.to_numeric(
+            df_db["horas_primer_contacto"], errors="coerce"
+        )
+    if "num_contactos" in df_db.columns:
+        df_db["num_contactos"] = pd.to_numeric(
+            df_db["num_contactos"], errors="coerce"
+        ).apply(lambda x: int(x) if pd.notna(x) else None)
+
+    records = [
+        {k: (None if (v is None or (isinstance(v, float) and math.isnan(v))) else v)
+         for k, v in row.items()}
+        for row in df_db.to_dict(orient="records")
+    ]
+
+    # Descartar filas sin historico_id
+    antes = len(records)
+    records = [r for r in records if r.get("historico_id")]
+    if antes - len(records) > 0:
+        logger.warning(f"{antes - len(records)} registros de histórico descartados por historico_id nulo")
+
+    batch_size = 500
+    for i in range(0, len(records), batch_size):
+        db.table("historico_cierres").upsert(
+            records[i:i + batch_size], on_conflict="historico_id"
+        ).execute()
+
+    logger.info(f"{len(records)} registros de histórico persistidos en Supabase")
+
 #Ejecución directa para prueba 
 
 if __name__ == "__main__":
