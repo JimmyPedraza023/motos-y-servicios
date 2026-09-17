@@ -35,6 +35,21 @@ def _verificar_seed() -> None:
         )
 
 
+def _limpiar_run_anterior(db) -> None:
+    """
+    Elimina scores y asignaciones de runs anteriores antes de iniciar uno nuevo.
+    Los leads y conversaciones NO se tocan — solo los datos derivados.
+    """
+    logger.info("Limpiando scores y asignaciones anteriores...")
+    db.table("lead_asignaciones").delete().neq(
+        "asignacion_id", "00000000-0000-0000-0000-000000000000"
+    ).execute()
+    db.table("lead_scores").delete().neq(
+        "score_id", "00000000-0000-0000-0000-000000000000"
+    ).execute()
+    logger.info("✔ Tablas derivadas limpias")
+
+
 def run(trigger_tipo: str = "manual") -> dict:
     _verificar_seed()
 
@@ -51,6 +66,9 @@ def run(trigger_tipo: str = "manual") -> dict:
     }).execute()
 
     try:
+        # ── Limpieza previa ────────────────────────────────────────────────
+        _limpiar_run_anterior(db)   # ← agregar aquí, antes de la etapa 1
+        
         # ── 1. Ingesta ─────────────────────────────────────────────────────
         logger.info("── Etapa 1/6: Ingesta")
         datos = ingestar_todo()

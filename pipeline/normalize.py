@@ -45,36 +45,43 @@ ESTADO_MAP = {
 
 CIUDAD_MAP = {
     # Bogotá
-    "bogota":     "Bogotá",
-    "bogotá":     "Bogotá",
-    "bogota dc":  "Bogotá",
-    "bogotá dc":  "Bogotá",
-    "bogota d.c": "Bogotá",
-    "bogotá d.c": "Bogotá",
+    "bogota":          "Bogotá",
+    "bogotá":          "Bogotá",
+    "bogota dc":       "Bogotá",
+    "bogotá dc":       "Bogotá",
+    "bogota d.c":      "Bogotá",
+    "bogotá d.c":      "Bogotá",
+    "bogotá d.c.":     "Bogotá",   # ← con punto final
+    "bogota d.c.":     "Bogotá",   # ← con punto final
     # Medellín
-    "medellin":   "Medellín",
-    "medellín":   "Medellín",
+    "medellin":        "Medellín",
+    "medellín":        "Medellín",
     # Barranquilla
-    "barranquilla": "Barranquilla",
+    "barranquilla":    "Barranquilla",
+    "b/quilla":        "Barranquilla",  # ← abreviatura
+    "bquilla":         "Barranquilla",  # ← abreviatura sin barra
     # Cartagena
-    "cartagena":  "Cartagena",
+    "cartagena":           "Cartagena",
+    "cartagena de indias": "Cartagena",  # ← nombre completo
     # Santa Marta
-    "santa marta": "Santa Marta",
+    "santa marta":     "Santa Marta",
+    "sta marta":       "Santa Marta",   # ← abreviatura
+    "sta. marta":      "Santa Marta",   # ← abreviatura con punto
     # Soledad
-    "soledad":    "Soledad",
+    "soledad":         "Soledad",
     # Soacha
-    "soacha":     "Soacha",
+    "soacha":          "Soacha",
     # Rionegro
-    "rio negro":  "Rionegro",
-    "rionegro":   "Rionegro",
+    "rio negro":       "Rionegro",
+    "rionegro":        "Rionegro",
     # Montería
-    "monteria":   "Montería",
-    "montería":   "Montería",
+    "monteria":        "Montería",
+    "montería":        "Montería",
     # Bello
-    "bello":      "Bello",
+    "bello":           "Bello",
     # Itagüí
-    "itagui":     "Itagüí",
-    "itagüí":     "Itagüí",
+    "itagui":          "Itagüí",
+    "itagüí":          "Itagüí",
 }
 
 

@@ -90,7 +90,10 @@ def persist_asignaciones(df_resultado: pd.DataFrame, run_id: str) -> None:
     ]
 
     if records:
-        db.table("lead_asignaciones").insert(records).execute()
+        db.table("lead_asignaciones").upsert(     
+            records,
+            on_conflict="lead_id,pipeline_run_id"  
+        ).execute()
 
     logger.info(f"{len(records)} asignaciones persistidas en Supabase")
 
