@@ -13,6 +13,20 @@ from api_client import (
 )
 from utils import badge_temperatura, badge_canal, fmt_score, color_temperatura
 
+from zoneinfo import ZoneInfo
+
+def formatear_fecha(fecha_iso: str) -> str:
+    """Convierte un timestamp ISO 8601 a fecha/hora de Colombia."""
+    if not fecha_iso:
+        return "—"
+
+    try:
+        fecha = datetime.fromisoformat(fecha_iso.replace("Z", "+00:00"))
+        fecha_colombia = fecha.astimezone(ZoneInfo("America/Bogota"))
+        return fecha_colombia.strftime("%d/%m/%Y %H:%M")
+    except (ValueError, TypeError):
+        return "—"
+
 # ── Configuración ─────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Motos & Servicios — Leads",
@@ -318,7 +332,7 @@ if status:
 
     # Timestamp y run_id
     st.caption(
-        f"Última ejecución: `{status.get('iniciado_en', '—')}` · "
+        f"Última ejecución: `{formatear_fecha(status.get('iniciado_en'))}` · "
         f"Run ID: `{status.get('run_id', '—')}`"
     )
 
@@ -332,3 +346,12 @@ if status:
             '<meta http-equiv="refresh" content="10">',
             unsafe_allow_html=True,
         )
+
+# ── Botón de disparo manual ──────────────────────────────────────
+st.divider()
+st.button(
+    "⚡ Ejecutar pipeline ahora",
+    disabled=True,
+    help="Disparo manual disponible vía POST /pipeline/run en la API. "
+         "En producción se ejecuta automáticamente cada noche a las 02:00 COT.",
+)
