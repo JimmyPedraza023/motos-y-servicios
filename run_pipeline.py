@@ -15,8 +15,9 @@ from pipeline.normalize import (
     normalizar_leads,
     normalizar_asesores,
     normalizar_historico,
+    persist_historico,
     persist_leads,
-    persist_conversaciones,
+    persist_conversaciones
 )
 from pipeline.deduplicate import deduplicar, persist_duplicates
 from pipeline.extract_ai import extraer_conversaciones
@@ -83,6 +84,9 @@ def run(trigger_tipo: str = "manual") -> dict:
         # porque conversaciones.lead_id referencia leads(lead_id)
         persist_leads(leads_norm, run_id)
         persist_conversaciones(datos["conversaciones"])
+
+        historico_norm = normalizar_historico(datos["historico"])
+        persist_historico(historico_norm)   
 
         # ── 3. Deduplicación ───────────────────────────────────────────────
         logger.info("── Etapa 3/6: Deduplicación")
