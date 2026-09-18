@@ -38,17 +38,36 @@ def _verificar_seed() -> None:
 
 def _limpiar_run_anterior(db) -> None:
     """
-    Elimina scores y asignaciones de runs anteriores antes de iniciar uno nuevo.
-    Los leads y conversaciones NO se tocan — solo los datos derivados.
+    Limpia scores de runs anteriores antes de iniciar uno nuevo.
+    Las asignaciones ya NO se borran acá: se actualizan vía upsert
+    por lead_id en assign.py, preservando el estado de los leads
+    ya gestionados (atendido=True).
+    Los leads y conversaciones NO se tocan.
     """
-    logger.info("Limpiando scores y asignaciones anteriores...")
-    db.table("lead_asignaciones").delete().neq(
-        "asignacion_id", "00000000-0000-0000-0000-000000000000"
-    ).execute()
+    logger.info("Limpiando scores anteriores...")
     db.table("lead_scores").delete().neq(
         "score_id", "00000000-0000-0000-0000-000000000000"
     ).execute()
-    logger.info("✔ Tablas derivadas limpias")
+    logger.info("✔ Tabla de scores limpia")
+
+
+def _obtener_leads_gestionados(db) -> tuple[set[str], dict[str, int]]:
+    resultado = (
+        db.table("lead_asignaciones")
+        .select("lead_id, asesor_id")
+        .eq("atendido", True)
+        .execute()
+    )
+    leads = {str(r["lead_id"]) for r in resultado.data}
+
+    conteo_por_asesor: dict[str, int] = {}
+    for r in resultado.data:
+        aid = r.get("asesor_id")
+        if aid:
+            conteo_por_asesor[aid] = conteo_por_asesor.get(aid, 0) + 1
+
+    logger.info(f"Leads ya gestionados (excluidos de reasignación): {len(leads):,}")
+    return leads, conteo_por_asesor
 
 
 def run(trigger_tipo: str = "manual") -> dict:
@@ -68,8 +87,8 @@ def run(trigger_tipo: str = "manual") -> dict:
 
     try:
         # ── Limpieza previa ────────────────────────────────────────────────
-        _limpiar_run_anterior(db)   # ← agregar aquí, antes de la etapa 1
-        
+        _limpiar_run_anterior(db)   # ahora solo limpia lead_scores (ver 3.2)
+
         # ── 1. Ingesta ─────────────────────────────────────────────────────
         logger.info("── Etapa 1/6: Ingesta")
         datos = ingestar_todo()
@@ -80,13 +99,11 @@ def run(trigger_tipo: str = "manual") -> dict:
         asesores_norm  = normalizar_asesores(datos["asesores"])
         historico_norm = normalizar_historico(datos["historico"])
 
-        # persist_conversaciones antes de persist_leads no es posible
-        # porque conversaciones.lead_id referencia leads(lead_id)
         persist_leads(leads_norm, run_id)
         persist_conversaciones(datos["conversaciones"])
 
         historico_norm = normalizar_historico(datos["historico"])
-        persist_historico(historico_norm)   
+        persist_historico(historico_norm)
 
         # ── 3. Deduplicación ───────────────────────────────────────────────
         logger.info("── Etapa 3/6: Deduplicación")
@@ -94,7 +111,6 @@ def run(trigger_tipo: str = "manual") -> dict:
         persist_duplicates(leads_dedup)
 
         # ── 4. Extracción IA ───────────────────────────────────────────────
-        # persist_extraccion se llama internamente por conversación
         logger.info("── Etapa 4/6: Extracción IA")
         extracciones = extraer_conversaciones(
             datos["conversaciones"],
@@ -108,22 +124,36 @@ def run(trigger_tipo: str = "manual") -> dict:
 
         # ── 6. Asignación ──────────────────────────────────────────────────
         logger.info("── Etapa 6/6: Asignación")
-        df_resultado = asignar_leads(df_scored, asesores_norm)
+        leads_gestionados, conteo_gestionados_por_asesor = _obtener_leads_gestionados(db)
+        df_resultado = asignar_leads(
+            df_scored,
+            asesores_norm,
+            leads_ya_gestionados=leads_gestionados,
+            asignaciones_gestionadas_por_asesor=conteo_gestionados_por_asesor,
+        )
         persist_asignaciones(df_resultado, run_id)
 
         asignados = int(df_resultado["asignado"].sum())
 
         # ── Cerrar run exitoso ─────────────────────────────────────────────
         db.table("pipeline_runs").update({
-            "estado":           "exitoso",
-            "finalizado_en":    datetime.now(timezone.utc).isoformat(),
-            "leads_procesados": len(leads_norm),
-            "leads_scoring":    len(df_scored),
-            "leads_asignados":  asignados,
+            "estado":            "exitoso",
+            "finalizado_en":     datetime.now(timezone.utc).isoformat(),
+            "leads_procesados":  len(leads_norm),
+            "leads_scoring":     len(df_scored),
+            "leads_asignados":   asignados,             # ← opcional, útil para auditar
         }).eq("run_id", run_id).execute()
 
-        logger.info(f"✔ Pipeline completado — {asignados} leads asignados")
-        return {"run_id": run_id, "estado": "exitoso", "leads_asignados": asignados}
+        logger.info(
+            f"✔ Pipeline completado — {asignados} leads asignados "
+            f"(+{len(leads_gestionados)} ya gestionados, sin tocar)"
+        )
+        return {
+            "run_id": run_id,
+            "estado": "exitoso",
+            "leads_asignados": asignados,
+            "leads_gestionados": len(leads_gestionados),
+        }
 
     except Exception as e:
         logger.error(f"✘ Pipeline fallido: {e}")
