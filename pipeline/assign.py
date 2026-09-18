@@ -79,9 +79,9 @@ def persist_asignaciones(df_resultado: pd.DataFrame, run_id: str) -> None:
     ][_COLUMNAS_ASIGNACION_DB].copy()
 
     df_asig["pipeline_run_id"] = run_id
-    df_asig["atendido"] = False
+    # Ya no seteamos "atendido" aquí — no forma parte del payload,
+    # así que el upsert no pisa el valor que ya tenga la fila en BD.
 
-    # orden_prioridad viene como float por mezcla con NaN — forzar a int
     df_asig["orden_prioridad"] = df_asig["orden_prioridad"].astype(int)
 
     records = [
@@ -90,12 +90,12 @@ def persist_asignaciones(df_resultado: pd.DataFrame, run_id: str) -> None:
     ]
 
     if records:
-        db.table("lead_asignaciones").upsert(     
+        db.table("lead_asignaciones").upsert(
             records,
-            on_conflict="lead_id,pipeline_run_id"  
+            on_conflict="lead_id",      
         ).execute()
 
-    logger.info(f"{len(records)} asignaciones persistidas en Supabase")
+    logger.info(f"{len(records)} asignaciones persistidas/actualizadas en Supabase")
 
 
 # ── Asignación principal ──────────────────────────────────────────────────────
@@ -104,6 +104,8 @@ def asignar_leads(
     df_scored: pd.DataFrame,
     df_asesores: pd.DataFrame,
     fecha_asignacion: date = None,
+    leads_ya_gestionados: set[str] = None,
+    asignaciones_gestionadas_por_asesor: dict[str, int] = None,
 ) -> pd.DataFrame:
     """
     Asigna cada lead elegible al asesor disponible más adecuado.
@@ -136,6 +138,11 @@ def asignar_leads(
         )
     )
 
+    # Descontar capacidad ya ocupada por leads gestionados que se preservan
+    for asesor_id, n_gestionados in asignaciones_gestionadas_por_asesor.items():
+        if asesor_id in capacidad:
+            capacidad[asesor_id] = max(0, capacidad[asesor_id] - n_gestionados)
+
     # Metadata de cada asesor para búsqueda rápida
     asesor_info: dict[str, dict] = {
         row["asesor_id"]: {
@@ -155,15 +162,16 @@ def asignar_leads(
     # Solo leads elegibles (no duplicados, temperatura asignable)
     elegibles = df_scored[
         (~df_scored["es_duplicado"]) &
-        (df_scored["temperatura"].isin(TEMPERATURAS_ASIGNABLES))
+        (df_scored["temperatura"].isin(TEMPERATURAS_ASIGNABLES)) &
+        (~df_scored["lead_id"].astype(str).isin(leads_ya_gestionados))
     ].copy()
 
-    # Ordenar por score desc para asignar primero los mejores leads
     elegibles = elegibles.sort_values("score_total", ascending=False)
 
     logger.info(
         f"Leads elegibles para asignación: {len(elegibles):,} "
-        f"({TEMPERATURAS_ASIGNABLES})"
+        f"({TEMPERATURAS_ASIGNABLES}) — "
+        f"{len(leads_ya_gestionados):,} excluidos por gestión previa"
     )
 
     # Resultado de asignaciones

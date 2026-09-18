@@ -386,7 +386,7 @@ def persist_leads(df_leads: pd.DataFrame, run_id: str) -> None:
     batch_size = 500
     for i in range(0, len(records), batch_size):
         db.table("leads").upsert(
-            records[i:i + batch_size], on_conflict="lead_id"
+            records[i:i + batch_size], on_conflict="lead_id", ignore_duplicates=True, 
         ).execute()
 
     logger.info(f"{len(records)} leads persistidos en Supabase")
