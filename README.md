@@ -12,12 +12,12 @@ Convierte los leads crudos de un CRM compartido (WhatsApp, Meta Ads y Formulario
 4. **Extracción con IA** — NVIDIA NIM (DeepSeek) estructura cada conversación de WhatsApp en 6 campos: modelo de interés, presupuesto/cuota, forma de pago, intención declarada, objeción principal y si pidió cita/cotización.
 5. **Scoring explicable** — cada lead recibe un score 0–100 y una temperatura (`Caliente | Tibio | Frio`), calibrado con las tasas de cierre reales de `historico_cierres.csv`. Se recalcula en cada corrida porque el componente temporal (`score_tiempo_respuesta`) depende de cuánto tiempo lleva el lead sin contacto.
 6. **Asignación diaria** — solo los leads `Caliente`/`Tibio` se asignan a asesores respetando capacidad diaria y punto de venta; los `Frio` quedan en cola. La asignación es **idempotente respecto al estado operativo**: un lead ya atendido (`atendido = true`) nunca vuelve a entrar al pool de reasignación ni pierde su asesor o su estado al correr el pipeline de nuevo.
-7. **Publicación** — API FastAPI + tablero Streamlit con la vista "mis leads de hoy" por asesor y filtro por empresa.
+7. **Publicación** — API FastAPI + tablero con la vista "mis leads de hoy" por asesor y filtro por empresa. Las vistas están migrando de **Streamlit a React** (ver [Migración de vistas: Streamlit → React](#migración-de-vistas-streamlit--react)).
 
 ## Arquitectura
 
 ```
-data/raw (fuentes) ─► pipeline/ (ETL + IA) ─► Supabase (PostgreSQL + RLS) ─► API FastAPI ─► dashboard Streamlit
+data/raw (fuentes) ─► pipeline/ (ETL + IA) ─► Supabase (PostgreSQL + RLS) ─► API FastAPI ─► frontend React (en migración)
                                        ▲
                               scheduler nocturno (02:00 COT) · disparo API · comando manual
 ```
@@ -27,8 +27,30 @@ Diagrama completo en [docs/arquitectura.md](docs/arquitectura.md).
 - `pipeline/` — etapas ETL puras (`ingest`, `normalize`, `deduplicate`, `extract_ai`, `score`, `assign`, `seed`). Cada etapa expone su `persist_*` hacia Supabase.
 - `api/` — FastAPI con routers `health`, `leads`, `asesores` y `pipeline`. Swagger en `/docs`.
 - `db/` — cliente Supabase (`db/client.py`), `schema.sql` con RLS y migraciones en `db/migrations/`.
-- `dashboard/` — Streamlit que consume la API vía `requests`.
+- `dashboard/` — Streamlit que consume la API vía `requests` (legacy, **reemplazado en curso por `frontend/`**).
+- `frontend/` — SPA React (Vite + TypeScript + Tailwind CSS) que consume la misma API. Reemplaza al dashboard de Streamlit en la rama `feature/react-frontend`.
 - Root — orquestadores: `run_pipeline.py` (pipeline completo) y `re_score.py` (re-scoring sin IA).
+
+## Migración de vistas: Streamlit → React
+
+La capa de presentación **está migrando de Streamlit a React**. El backend (pipeline, API FastAPI y Supabase) **no cambia**: el nuevo frontend consume exactamente los mismos endpoints y el mismo header `X-Empresa-ID`.
+
+| | Streamlit (legacy) | React (nuevo) |
+| --- | --- | --- |
+| Carpeta | `dashboard/` (`app.py`, `api_client.py`, `utils.py`) | `frontend/` (Vite + React + TypeScript + Tailwind CSS) |
+| Stack | Python + Streamlit + Plotly | SPA con `fetch` tipado y proxy de Vite (`/api` → `:8000`) |
+| Vistas | Leads priorizados · Mis leads de hoy · Pipeline | Idénticas, replicadas 1 a 1 |
+| Estado | Se mantiene temporalmente (se elimina al completar la migración) | Activo |
+
+**Ejecución del frontend React:**
+
+```powershell
+cd frontend
+npm install        # solo la primera vez
+npm run dev        # http://localhost:5173 (requiere la API en :8000)
+```
+
+En producción se configura la URL de la API con `VITE_API_BASE_URL` (ej. `VITE_API_BASE_URL=https://tu-api.render.com`) en `frontend/.env.local`; en dev se usa el proxy de Vite.
 
 ## Requisitos
 
@@ -72,17 +94,26 @@ SUPABASE_SERVICE_ROLE_KEY=   # la usa el backend (bypasa RLS)
 | `python re_score.py` | Recalcula scoring y asignación sin volver a llamar a la IA (upsert, no borra). |
 | `python -m pipeline.extract_ai` | Solo extracción IA (modo prueba con `limite=5`). Consume tokens. |
 | `.venv\Scripts\uvicorn.exe api.main:app --reload` | Levanta la API (Swagger en `/docs`). Arranca el scheduler nocturno. |
-| `.venv\Scripts\streamlit.exe run dashboard\app.py` | Levanta el tablero (requiere la API en `localhost:8000`). |
+| `.venv\Scripts\streamlit.exe run dashboard\app.py` | Levanta el tablero legacy (requiere la API en `localhost:8000`). |
+| `cd frontend; npm install` | Instala dependencias del frontend React. |
+| `cd frontend; npm run dev` | Levanta el frontend React en `http://localhost:5173` (proxy `/api` → `localhost:8000`). |
+| `cd frontend; npm run build` | Build de producción del frontend React (output en `frontend/dist/`). |
 
 ### Flujo típico
 
 ```powershell
 python -m pipeline.seed                       # 1. una sola vez
 python run_pipeline.py                        # 2. pipeline completo
-# o expone la API:
+# o expone la API + el frontend React:
 .venv\Scripts\uvicorn.exe api.main:app --reload
-.venv\Scripts\streamlit.exe run dashboard\app.py    # POST /pipeline/run
+cd frontend
+npm install                                    # solo la primera vez
+npm run dev                                    # http://localhost:5173 (proxy → :8000)
 ```
+
+> El frontend React (`frontend/`) apunta por defecto a `/api` (proxy de Vite en dev).
+> En producción se configura la URL de la API con la variable `VITE_API_BASE_URL`
+> (ej. `VITE_API_BASE_URL=https://tu-api.render.com`) en `frontend/.env.local`.
 
 ## API
 
@@ -124,8 +155,8 @@ La autenticación por empresa es por header `X-Empresa-ID` (`EMP-01`, `EMP-02`, 
 
 ## Publicación
 
-- **API + dashboard:** desplegados como dos servicios independientes (Render para la API, Streamlit Cloud para el dashboard).
-- **URL pública:** https://motos-y-servicios.streamlit.app/
+- **API + dashboard:** desplegados como dos servicios independientes (Render para la API, hosting estático para el frontend React, que reemplaza a Streamlit Cloud en la rama `feature/react-frontend`).
+- **URL pública:** https://motos-y-servicios.streamlit.app/ (Streamlit legacy, pendiente de migrar al frontend React).
 - **Scheduler:** el servicio API incluye el cron nocturno (02:00 Colombia), por lo que no se necesita un cron externo; al desplegarse con una sola instancia, el scheduler queda en esa instancia y con `--reload` desactivado.
 
 ## Trabajo futuro
