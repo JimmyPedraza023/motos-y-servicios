@@ -27,7 +27,8 @@ Diagrama completo en [docs/arquitectura.md](docs/arquitectura.md).
 - `pipeline/` — etapas ETL puras (`ingest`, `normalize`, `deduplicate`, `extract_ai`, `score`, `assign`, `seed`). Cada etapa expone su `persist_*` hacia Supabase.
 - `api/` — FastAPI con routers `health`, `leads`, `asesores` y `pipeline`. Swagger en `/docs`.
 - `db/` — cliente Supabase (`db/client.py`), `schema.sql` con RLS y migraciones en `db/migrations/`.
-- `dashboard/` — Streamlit que consume la API vía `requests`.
+- `dashboard/` — Streamlit que consume la API vía `requests` (legacy, **reemplazado en curso por `frontend/`**).
+- `frontend/` — SPA React (Vite + TypeScript + Tailwind CSS) que consume la misma API. Reemplaza al dashboard de Streamlit en la rama `feature/react-frontend`.
 - Root — orquestadores: `run_pipeline.py` (pipeline completo) y `re_score.py` (re-scoring sin IA).
 
 ## Requisitos
@@ -72,17 +73,26 @@ SUPABASE_SERVICE_ROLE_KEY=   # la usa el backend (bypasa RLS)
 | `python re_score.py` | Recalcula scoring y asignación sin volver a llamar a la IA (upsert, no borra). |
 | `python -m pipeline.extract_ai` | Solo extracción IA (modo prueba con `limite=5`). Consume tokens. |
 | `.venv\Scripts\uvicorn.exe api.main:app --reload` | Levanta la API (Swagger en `/docs`). Arranca el scheduler nocturno. |
-| `.venv\Scripts\streamlit.exe run dashboard\app.py` | Levanta el tablero (requiere la API en `localhost:8000`). |
+| `.venv\Scripts\streamlit.exe run dashboard\app.py` | Levanta el tablero legacy (requiere la API en `localhost:8000`). |
+| `cd frontend; npm install` | Instala dependencias del frontend React. |
+| `cd frontend; npm run dev` | Levanta el frontend React en `http://localhost:5173` (proxy `/api` → `localhost:8000`). |
+| `cd frontend; npm run build` | Build de producción del frontend React (output en `frontend/dist/`). |
 
 ### Flujo típico
 
 ```powershell
 python -m pipeline.seed                       # 1. una sola vez
 python run_pipeline.py                        # 2. pipeline completo
-# o expone la API:
+# o expone la API + el frontend React:
 .venv\Scripts\uvicorn.exe api.main:app --reload
-.venv\Scripts\streamlit.exe run dashboard\app.py    # POST /pipeline/run
+cd frontend
+npm install                                    # solo la primera vez
+npm run dev                                    # http://localhost:5173 (proxy → :8000)
 ```
+
+> El frontend React (`frontend/`) apunta por defecto a `/api` (proxy de Vite en dev).
+> En producción se configura la URL de la API con la variable `VITE_API_BASE_URL`
+> (ej. `VITE_API_BASE_URL=https://tu-api.render.com`) en `frontend/.env.local`.
 
 ## API
 
@@ -124,8 +134,8 @@ La autenticación por empresa es por header `X-Empresa-ID` (`EMP-01`, `EMP-02`, 
 
 ## Publicación
 
-- **API + dashboard:** desplegados como dos servicios independientes (Render para la API, Streamlit Cloud para el dashboard).
-- **URL pública:** https://motos-y-servicios.streamlit.app/
+- **API + dashboard:** desplegados como dos servicios independientes (Render para la API, hosting estático para el frontend React, que reemplaza a Streamlit Cloud en la rama `feature/react-frontend`).
+- **URL pública:** https://motos-y-servicios.streamlit.app/ (Streamlit legacy, pendiente de migrar al frontend React).
 - **Scheduler:** el servicio API incluye el cron nocturno (02:00 Colombia), por lo que no se necesita un cron externo; al desplegarse con una sola instancia, el scheduler queda en esa instancia y con `--reload` desactivado.
 
 ## Trabajo futuro
