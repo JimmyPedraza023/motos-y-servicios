@@ -52,6 +52,27 @@ npm run dev        # http://localhost:5173 (requiere la API en :8000)
 
 En producción se configura la URL de la API con `VITE_API_BASE_URL` (ej. `VITE_API_BASE_URL=https://tu-api.render.com`) en `frontend/.env.local`; en dev se usa el proxy de Vite.
 
+### Despliegue en Vercel
+
+El frontend se despliega en Vercel como estáticos (Vite), apuntando al backend de Render. Build y output no requieren configuración extra: Vercel detecta Vite (`npm run build`, output `frontend/dist/`).
+
+```text
+Build Command:    npm run build
+Output Directory: dist   (relative to frontend/)
+Install Command:  npm install
+Root Directory:   frontend
+```
+
+**Requisito clave:** la variable de entorno debe llamarse exactamente `VITE_API_BASE_URL` (Vite solo expone al cliente las variables con prefijo `VITE_`). En Vercel → *Project → Settings → Environment Variables*:
+
+```env
+VITE_API_BASE_URL = https://motos-y-servicios.onrender.com
+```
+
+Sin barra final. Tras crearla, **redeployar** (las variables se aplican en el build, no al vuelo). Si los requests siguen yendo a `https://tu-app.vercel.app/api/...`, la variable no está llegando al build (nombre incorrecto o disponible solo en runtime).
+
+> La API ya envía `Access-Control-Allow-Origin: *`, así que no hace falta proxy ni config CORS adicional. El header `X-Empresa-ID` se manda igualmente desde el frontend.
+
 ## Requisitos
 
 - Python 3.12
