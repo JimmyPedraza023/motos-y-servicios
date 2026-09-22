@@ -54,24 +54,39 @@ En producción se configura la URL de la API con `VITE_API_BASE_URL` (ej. `VITE_
 
 ### Despliegue en Vercel
 
-El frontend se despliega en Vercel como estáticos (Vite), apuntando al backend de Render. Build y output no requieren configuración extra: Vercel detecta Vite (`npm run build`, output `frontend/dist/`).
+El frontend se despliega en Vercel como estáticos (Vite), apuntando al backend de Render. Build y output no requieren configuración extra: Vercel detecta Vite.
 
 ```text
-Build Command:    npm run build
-Output Directory: dist   (relative to frontend/)
-Install Command:  npm install
 Root Directory:   frontend
+Build Command:    npm run build
+Output Directory: dist
+Install Command:  npm install
 ```
 
-**Requisito clave:** la variable de entorno debe llamarse exactamente `VITE_API_BASE_URL` (Vite solo expone al cliente las variables con prefijo `VITE_`). En Vercel → *Project → Settings → Environment Variables*:
+**Proxy `/api` en Vercel (recomendado, sin variables de entorno):** `frontend/vercel.json`
+incluye un rewrite que reenvía `/api/*` al backend de Render. El cliente usa su base
+por defecto `/api` (igual que en dev), por lo que no hace falta ninguna variable y el
+mismo-origen elimina el CORS:
 
-```env
-VITE_API_BASE_URL = https://motos-y-servicios.onrender.com
+```json
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://motos-y-servicios.onrender.com/:path*"
+    }
+  ]
+}
 ```
 
-Sin barra final. Tras crearla, **redeployar** (las variables se aplican en el build, no al vuelo). Si los requests siguen yendo a `https://tu-app.vercel.app/api/...`, la variable no está llegando al build (nombre incorrecto o disponible solo en runtime).
+**Alternativa con variable:** si se prefiere conectar directo al backend, definir
+`VITE_API_BASE_URL = https://motos-y-servicios.onrender.com` (Vite solo expone al
+cliente las variables con prefijo `VITE_`, y puede estar restringido por política de
+seguridad; **no lleves secretos con ese prefijo**, aquí es solo la URL pública de la API).
+Sin barra final, y redeploy tras crearla (aplica en el build, no al vuelo).
 
-> La API ya envía `Access-Control-Allow-Origin: *`, así que no hace falta proxy ni config CORS adicional. El header `X-Empresa-ID` se manda igualmente desde el frontend.
+> La API envía `Access-Control-Allow-Origin: *`, por lo que también funcionaría sin proxy.
+> El header `X-Empresa-ID` se manda igualmente desde el frontend.
 
 ## Requisitos
 
