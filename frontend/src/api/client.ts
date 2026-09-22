@@ -6,8 +6,12 @@ import type {
   PipelineStatus,
 } from './types'
 
-export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api'
+const rawApiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? '/api'
+
+const normalizedApiBase =
+  rawApiBase.length > 1 ? rawApiBase.replace(/\/+$/, '') : rawApiBase
+
+export const API_BASE: string = normalizedApiBase
 
 const TIMEOUT_MS = 15000
 

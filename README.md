@@ -52,6 +52,42 @@ npm run dev        # http://localhost:5173 (requiere la API en :8000)
 
 En producción se configura la URL de la API con `VITE_API_BASE_URL` (ej. `VITE_API_BASE_URL=https://tu-api.render.com`) en `frontend/.env.local`; en dev se usa el proxy de Vite.
 
+### Despliegue en Vercel
+
+El frontend se despliega en Vercel como estáticos (Vite), apuntando al backend de Render. Build y output no requieren configuración extra: Vercel detecta Vite.
+
+```text
+Root Directory:   frontend
+Build Command:    npm run build
+Output Directory: dist
+Install Command:  npm install
+```
+
+**Proxy `/api` en Vercel (recomendado, sin variables de entorno):** `frontend/vercel.json`
+incluye un rewrite que reenvía `/api/*` al backend de Render. El cliente usa su base
+por defecto `/api` (igual que en dev), por lo que no hace falta ninguna variable y el
+mismo-origen elimina el CORS:
+
+```json
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://motos-y-servicios.onrender.com/:path*"
+    }
+  ]
+}
+```
+
+**Alternativa con variable:** si se prefiere conectar directo al backend, definir
+`VITE_API_BASE_URL = https://motos-y-servicios.onrender.com` (Vite solo expone al
+cliente las variables con prefijo `VITE_`, y puede estar restringido por política de
+seguridad; **no lleves secretos con ese prefijo**, aquí es solo la URL pública de la API).
+Sin barra final, y redeploy tras crearla (aplica en el build, no al vuelo).
+
+> La API envía `Access-Control-Allow-Origin: *`, por lo que también funcionaría sin proxy.
+> El header `X-Empresa-ID` se manda igualmente desde el frontend.
+
 ## Requisitos
 
 - Python 3.12
